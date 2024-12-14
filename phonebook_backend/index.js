@@ -1,98 +1,105 @@
-const express = require("express");
-const morgan = require("morgan");
-const cors = require("cors");
-const app = express();
-app.use(cors());
-app.use(express.json());
+const express = require('express'),
+  morgan = require('morgan'),
+  cors = require('cors'),
+  Person = require('./models/mongo')
 
-morgan.token("body", (req) => {
-  if (req.method === "POST") {
-    return JSON.stringify(req.body);
+require('dotenv').config()
+const app = express()
+
+app.use(cors())
+app.use(express.json())
+
+morgan.token('body', (req) => {
+  if (req.method === 'POST') {
+    return JSON.stringify(req.body)
   }
-  return "";
-});
+  return ''
+})
 app.use(
-  morgan(":method :url :status :res[content-length] - :response-time ms :body")
-);
+  morgan(':method :url :status :res[content-length] - :response-time ms :body')
+)
 
-let persons = [
-  {
-    id: "1",
-    name: "Arto Hellas",
-    number: "040-123456",
-  },
-  {
-    id: "2",
-    name: "Ada Lovelace",
-    number: "39-44-5323523",
-  },
-  {
-    id: "3",
-    name: "Dan Abramov",
-    number: "12-43-234345",
-  },
-  {
-    id: "4",
-    name: "Mary Poppendieck",
-    number: "39-23-6423122",
-  },
-];
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
 
-app.get("/api/persons", (request, response) => {
-  response.json(persons);
-});
-
-app.get("/api/persons/:id", (request, response) => {
-  const id = request.params.id;
-  const person = persons.find((person) => person.id === id);
-
-  if (person) {
-    response.json(person);
-  } else {
-    response.status(404).end();
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformed id' })
+  } else if (error.name === 'ValidationError') {
+    return response.status(400).json({ error: error.message })
   }
-});
+  next(error)
+}
 
-app.delete("/api/persons/:id", (request, response) => {
-  const id = request.params.id;
-  persons = persons.filter((person) => person.id !== id);
+app.get('/api/persons', (request, response) => {
+  Person.find({}).then((persons) => {
+    response.json(persons)
+  })
+})
 
-  response.status(204).end();
-});
+app.get('/api/persons/:id', (request, response, next) => {
+  Person.findById(request.params.id)
+    .then((person) => {
+      if (person) {
+        response.json(person)
+      } else {
+        response.status(404).end()
+      }
+    })
+    .catch((error) => next(error))
+})
 
-app.post("/api/persons/", (request, response) => {
-  const body = request.body;
-  const arr = persons.map((person) => person.name);
+app.delete('/api/persons/:id', (request, response, next) => {
+  Person.findByIdAndDelete(request.params.id)
+    .then(() => {
+      response.status(204).end()
+    })
+    .catch((error) => next(error))
+})
+
+app.post('/api/persons/', (request, response, next) => {
+  const body = request.body
 
   if (!body.name || !body.number) {
     return response.status(404).json({
-      error: "The name or number is missing",
-    });
-  } else if (arr.find((name) => name === body.name)) {
-    return response.status(404).json({
-      error: "name must be unique",
-    });
+      error: 'The name or number is missing',
+    })
   }
-  //String(Math.round(Math.random() * 10000))
-  const person = {
-    id: body.id,
+
+  const person = new Person({
     name: body.name,
     number: body.number,
-  };
+  })
 
-  persons = persons.concat(person);
-  response.status(204).end();
-});
+  person
+    .save()
+    .then((savedPerson) => {
+      response.json(savedPerson)
+    })
+    .catch((error) => next(error))
+})
 
-app.get("/info", (request, response) => {
-  response.send(
-    `<p>Phonebook has info of ${
-      persons.length
-    } people</p><p>${new Date().toString()}</p>`
-  );
-});
+app.put('/api/persons/:id', (request, response, next) => {
+  const body = request.body
+  Person.findByIdAndUpdate(request.params.id, body, { new: true })
+    .then((updatedPerson) => {
+      response.send(updatedPerson)
+    })
+    .catch((error) => next(error))
+})
 
-const PORT = 3001;
+app.get('/info', (request, response) => {
+  Person.find({}).then((persons) => {
+    response.send(
+      `<p>Phonebook has info of ${
+        persons.length
+      } people</p><p>${new Date().toString()}</p>`
+    )
+  })
+})
+
+const PORT = process.env.PORT
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+  console.log(`Server is running on port ${PORT}`)
+})
+
+app.use(errorHandler)
